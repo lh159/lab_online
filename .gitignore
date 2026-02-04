@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv/
+
+# Model files (large binary files)
+base_model/
+xu_zhuxi_model/
+!xu_zhuxi_model/*/README.md
+!xu_zhuxi_model/*/*.md
+
+# Voice data
+voice_data/
+*.wav
+*.mp3
+*.flac
+*.m4a
+*.webm
+
+# Demo outputs
+demo能力跑通/logs/
+demo能力跑通/__pycache__/
+
+# Logs
+*.log
+uvicorn.log
+uvicorn.pid
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp files
+*.tmp
+*.temp
