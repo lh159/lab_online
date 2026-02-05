@@ -214,8 +214,19 @@
                 </template>
                 
                 <div class="model-content">
-                  <div class="result-text">
-                    {{ comparisonResult.base_model.text }}
+                  <!-- 带置信度的文本显示 -->
+                  <div class="result-text confidence-text">
+                    <template v-for="(item, index) in baseTextWithConfidence" :key="index">
+                      <span
+                        v-if="item.char !== '\n'"
+                        :class="{
+                          'low-confidence': item.isLowConf,
+                          'high-confidence': item.isHighConf
+                        }"
+                        :title="`置信度: ${(item.confidence * 100).toFixed(1)}%`"
+                      >{{ item.char }}</span>
+                      <br v-else />
+                    </template>
                   </div>
                   
                   <a-divider />
@@ -501,6 +512,56 @@ const personalTextWithConfidence = computed(() => {
   if (!comparisonResult.value) return []
   
   const sentences = comparisonResult.value.personal_model.sentences || []
+  const result = []
+  
+  sentences.forEach((sent, sentIdx) => {
+    const words = sent.words || []
+    
+    // 按词组织，每个词包含置信度
+    words.forEach((word, wordIdx) => {
+      const wordText = word.text || ''
+      const wordConf = word.confidence || 0.9
+      
+      // 每个字符分配相同的词置信度
+      for (let i = 0; i < wordText.length; i++) {
+        result.push({
+          char: wordText[i],
+          confidence: wordConf,
+          isLowConf: wordConf < 0.7,
+          isHighConf: wordConf >= 0.9
+        })
+      }
+      
+      // 添加空格（除了最后一个词）
+      if (wordIdx < words.length - 1) {
+        result.push({
+          char: ' ',
+          confidence: 0,
+          isLowConf: false,
+          isHighConf: false
+        })
+      }
+    })
+    
+    // 句子末尾添加换行
+    if (sentIdx < sentences.length - 1) {
+      result.push({
+        char: '\n',
+        confidence: 0,
+        isLowConf: false,
+        isHighConf: false
+      })
+    }
+  })
+  
+  return result
+})
+
+// 基础模型带置信度的文本（逐字显示置信度）
+const baseTextWithConfidence = computed(() => {
+  if (!comparisonResult.value) return []
+  
+  const sentences = comparisonResult.value.base_model.sentences || []
   const result = []
   
   sentences.forEach((sent, sentIdx) => {
