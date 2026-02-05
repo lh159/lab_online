@@ -1,0 +1,26 @@
+{
+  "name": "asr-model-comparison",
+  "version": "1.0.0",
+  "description": "ASR 语音识别模型对比系统 - Vue 3 + Ant Design",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.4.0",
+    "vue-router": "^4.2.0",
+    "pinia": "^2.1.0",
+    "ant-design-vue": "^4.0.0",
+    "@ant-design/icons-vue": "^7.0.0",
+    "axios": "^1.6.0",
+    "dayjs": "^1.11.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "vite": "^5.0.0",
+    "less": "^4.2.0"
+  }
+}

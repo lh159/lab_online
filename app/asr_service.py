@@ -1,44 +1,58 @@
 import os
 import re
-from typing import List, Dict, Any
+import time
+from typing import List, Dict, Any, Optional
 from funasr import AutoModel
 from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
 
 class ASRService:
     """
-    封装 ASR 推理逻辑，提供 transcribe(path) 返回识别文本及按句/词的置信度信息。
+    封装 ASR 推理逻辑，支持两个模型：
+    - base_model: 基础模型，未经个性化微调
+    - personal_model: 个人专属模型（xu_zhuxi_model）
+    
+    提供 transcribe() 返回识别文本及按句/词的置信度信息。
     """
 
     def __init__(self,
-                 model_origin_path: str = "/root/demo_1_confidence/xu_zhuxi_model/SenseVoiceSmall",
-                 model_trained_path: str = "/root/demo_1_confidence/xu_zhuxi_model/SenseVoiceSmall",
+                 base_model_path: str = "/root/demo_1_confidence/base_model/SenseVoiceSmall",
+                 personal_model_path: str = "/root/demo_1_confidence/xu_zhuxi_model/SenseVoiceSmall",
                  device: str = "cuda:0"):
-        self.model_origin_path = model_origin_path
-        self.model_trained_path = model_trained_path
+        self.base_model_path = base_model_path
+        self.personal_model_path = personal_model_path
         self.device = device
-        self.modelOR = None
-        self.modelTR = None
+        self.model_base = None
+        self.model_personal = None
         self._load_models()
 
     def _load_models(self):
         print("ASRService: loading models...")
-        # 加载原始模型
-        self.modelOR = AutoModel(
-            model=self.model_origin_path,
+        load_start = time.time()
+        
+        # 加载基础模型
+        print(f"  Loading base model from: {self.base_model_path}")
+        self.model_base = AutoModel(
+            model=self.base_model_path,
             trust_remote_code=False,
             vad_model=None,
             vad_kwargs={"max_single_segment_time": 30000},
             device=self.device,
         )
-        # 加载训练后模型（如果与 origin 相同也可以）
-        self.modelTR = AutoModel(
-            model=self.model_trained_path,
+        print(f"  Base model loaded in {time.time() - load_start:.2f}s")
+        
+        # 加载个人专属模型
+        personal_load_start = time.time()
+        print(f"  Loading personal model from: {self.personal_model_path}")
+        self.model_personal = AutoModel(
+            model=self.personal_model_path,
             trust_remote_code=False,
             vad_model=None,
             vad_kwargs={"max_single_segment_time": 30000},
             device=self.device,
         )
+        print(f"  Personal model loaded in {time.time() - personal_load_start:.2f}s")
+        print("ASRService: all models loaded successfully!")
 
     def _postprocess_text(self, text: str) -> str:
         text = rich_transcription_postprocess(text)
@@ -70,16 +84,77 @@ class ASRService:
             return 0.0
         return float(sum(probs) / len(probs))
 
-    def transcribe(self, audio_path: str, use_trained: bool = False) -> Dict[str, Any]:
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """
+        计算两个文本的相似度（基于编辑距离）
+        返回 0-1 之间的相似度分数
+        """
+        if not text1 and not text2:
+            return 1.0
+        if not text1 or not text2:
+            return 0.0
+        
+        # 简单的字符级相似度计算
+        set1 = set(text1)
+        set2 = set(text2)
+        
+        if not set1 or not set2:
+            return 0.0
+        
+        intersection = len(set1 & set2)
+        union = len(set1 | set2)
+        
+        return intersection / union if union > 0 else 0.0
+
+    def _calculate_wer(self, reference: str, hypothesis: str) -> float:
+        """
+        计算 Word Error Rate (WER)
+        简化版本：基于空格分词
+        """
+        ref_words = reference.split()
+        hyp_words = hypothesis.split()
+        
+        if not ref_words:
+            return 0.0 if not hyp_words else 1.0
+        
+        # 简单的编辑距离计算
+        m, n = len(ref_words), len(hyp_words)
+        dp = [[0] * (n + 1) for _ in range(m + 1)]
+        
+        for i in range(m + 1):
+            dp[i][0] = i
+        for j in range(n + 1):
+            dp[0][j] = j
+            
+        for i in range(1, m + 1):
+            for j in range(1, n + 1):
+                if ref_words[i-1] == hyp_words[j-1]:
+                    dp[i][j] = dp[i-1][j-1]
+                else:
+                    dp[i][j] = 1 + min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
+        
+        return dp[m][n] / m if m > 0 else 0.0
+
+    def transcribe(self, audio_path: str, model_type: str = "base") -> Dict[str, Any]:
         """
         对音频文件执行推理，返回结构：
         {
           "text": "...",
           "sentences": [{"text": "...", "confidence": 0.95, "words": [{"text": "...","confidence":0.9}, ...]}, ...],
-          "raw_prob": [...],  # 原始模型返回的置信度列表（可能为 []）
+          "raw_prob": [...],
+          "model_type": "base" | "personal",
+          "processing_time_ms": 123.45
         }
+        
+        Args:
+            audio_path: 音频文件路径
+            model_type: "base" 或 "personal"
         """
-        model = self.modelTR if use_trained else self.modelOR
+        model = self.model_base if model_type == "base" else self.model_personal
+        model_name = "base_model" if model_type == "base" else "xu_zhuxi_model"
+        
+        start_time = time.time()
+        
         res = model.generate(
             input=audio_path,
             cache={},
@@ -89,7 +164,9 @@ class ASRService:
             merge_vad=True,
             merge_length_s=15,
         )
-
+        
+        processing_time = (time.time() - start_time) * 1000  # 转换为毫秒
+        
         raw_text = res[0].get("text", "")
         raw_prob = res[0].get("prob", []) or []
         text = self._postprocess_text(raw_text)
@@ -179,6 +256,74 @@ class ASRService:
             sentences.append({"text": s, "confidence": round(sent_conf, 4), "words": words})
             cursor += length
 
-        return {"text": text, "sentences": sentences, "raw_prob": raw_prob}
+        return {
+            "text": text, 
+            "sentences": sentences, 
+            "raw_prob": raw_prob,
+            "model_type": model_type,
+            "model_name": model_name,
+            "processing_time_ms": round(processing_time, 2)
+        }
 
-
+    def compare_models(self, audio_path: str) -> Dict[str, Any]:
+        """
+        同时调用两个模型进行对比
+        返回两个模型的识别结果和统计分析
+        """
+        # 并行调用两个模型
+        import asyncio
+        
+        async def run_comparison():
+            loop = asyncio.get_running_loop()
+            
+            # 在线程池中并行执行两个模型的推理
+            base_result, personal_result = await asyncio.gather(
+                loop.run_in_executor(None, lambda: self.transcribe(audio_path, "base")),
+                loop.run_in_executor(None, lambda: self.transcribe(audio_path, "personal")),
+            )
+            
+            return base_result, personal_result
+        
+        # 如果在同步环境中执行
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            base_result, personal_result = executor.submit(
+                lambda: (self.transcribe(audio_path, "base"), 
+                         self.transcribe(audio_path, "personal"))
+            ).result()
+        
+        # 计算统计分析
+        text1 = base_result.get("text", "")
+        text2 = personal_result.get("text", "")
+        
+        # 计算整体置信度
+        base_conf = base_result.get("sentences", [])
+        personal_conf = personal_result.get("sentences", [])
+        
+        avg_base_conf = sum(s.get("confidence", 0) for s in base_conf) / len(base_conf) if base_conf else 0
+        avg_personal_conf = sum(s.get("confidence", 0) for s in personal_conf) / len(personal_conf) if personal_conf else 0
+        
+        # 计算相似度和 WER
+        similarity = self._calculate_similarity(text1, text2)
+        wer = self._calculate_wer(text1, text2)
+        
+        # 统计差异
+        same_chars = sum(1 for c1, c2 in zip(text1, text2) if c1 == c2)
+        diff_chars = abs(len(text1) - len(text2)) + sum(1 for c1, c2 in zip(text1[:min(len(text1), len(text2))], text2[:min(len(text1), len(text2))]) if c1 != c2)
+        
+        return {
+            "base_model": base_result,
+            "personal_model": personal_result,
+            "statistics": {
+                "similarity": round(similarity * 100, 2),  # 百分比
+                "wer": round(wer * 100, 2),  # Word Error Rate 百分比
+                "avg_confidence_base": round(avg_base_conf * 100, 2),
+                "avg_confidence_personal": round(avg_personal_conf * 100, 2),
+                "char_count_base": len(text1),
+                "char_count_personal": len(text2),
+                "same_chars": same_chars,
+                "diff_chars": diff_chars,
+                "total_chars": max(len(text1), len(text2)),
+            },
+            "comparison_timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+        }
