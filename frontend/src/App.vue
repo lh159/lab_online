@@ -221,6 +221,7 @@
                         v-if="item.char !== '\n'"
                         :class="{
                           'low-confidence': item.isLowConf,
+                          'mid-confidence': item.isMidConf,
                           'high-confidence': item.isHighConf
                         }"
                         :title="`置信度: ${(item.confidence * 100).toFixed(1)}%`"
@@ -271,6 +272,7 @@
                         v-if="item.char !== '\n'"
                         :class="{
                           'low-confidence': item.isLowConf,
+                          'mid-confidence': item.isMidConf,
                           'high-confidence': item.isHighConf
                         }"
                         :title="`置信度: ${(item.confidence * 100).toFixed(1)}%`"
@@ -527,7 +529,8 @@ const personalTextWithConfidence = computed(() => {
         result.push({
           char: wordText[i],
           confidence: wordConf,
-          isLowConf: wordConf < 0.7,
+          isLowConf: wordConf < 0.8,
+          isMidConf: wordConf >= 0.8 && wordConf < 0.9,
           isHighConf: wordConf >= 0.9
         })
       }
@@ -538,6 +541,7 @@ const personalTextWithConfidence = computed(() => {
           char: ' ',
           confidence: 0,
           isLowConf: false,
+          isMidConf: false,
           isHighConf: false
         })
       }
@@ -549,6 +553,7 @@ const personalTextWithConfidence = computed(() => {
         char: '\n',
         confidence: 0,
         isLowConf: false,
+        isMidConf: false,
         isHighConf: false
       })
     }
@@ -577,7 +582,8 @@ const baseTextWithConfidence = computed(() => {
         result.push({
           char: wordText[i],
           confidence: wordConf,
-          isLowConf: wordConf < 0.7,
+          isLowConf: wordConf < 0.8,
+          isMidConf: wordConf >= 0.8 && wordConf < 0.9,
           isHighConf: wordConf >= 0.9
         })
       }
@@ -588,6 +594,7 @@ const baseTextWithConfidence = computed(() => {
           char: ' ',
           confidence: 0,
           isLowConf: false,
+          isMidConf: false,
           isHighConf: false
         })
       }
@@ -599,6 +606,7 @@ const baseTextWithConfidence = computed(() => {
         char: '\n',
         confidence: 0,
         isLowConf: false,
+        isMidConf: false,
         isHighConf: false
       })
     }
@@ -1065,6 +1073,10 @@ watch(showAudioBrowser, async (newVal) => {
   border-radius: 2px;
   padding: 0 1px;
   font-weight: 500;
+}
+
+.confidence-text .mid-confidence {
+  color: #faad14;
 }
 
 .confidence-text .high-confidence {
