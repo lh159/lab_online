@@ -36,6 +36,11 @@ export const audioAPI = {
     return api.get('/audio-list')
   },
   
+  // 获取音频文件URL
+  getAudioUrl(filename) {
+    return `/api/audio/${filename}`
+  },
+  
   // 单个模型识别
   transcribe(modelType, file, filename) {
     const formData = new FormData()

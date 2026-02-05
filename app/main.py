@@ -31,13 +31,41 @@ asr_service = ASRService(device="cuda:0")
 
 @app.get("/api/audio-list")
 async def audio_list():
-    """获取可用的音频文件列表"""
+    """获取音频文件列表"""
     try:
-        files = [f for f in os.listdir(VOICE_DATA_DIR) if f.lower().endswith((".mp3", ".wav", ".webm", ".flac", ".m4a"))]
-        files.sort()
-        return {"files": files}
+        files = []
+        for f in os.listdir(VOICE_DATA_DIR):
+            if f.lower().endswith((".mp3", ".wav", ".webm", ".flac", ".m4a")):
+                file_path = os.path.join(VOICE_DATA_DIR, f)
+                stat = os.stat(file_path)
+                files.append({
+                    "name": f,
+                    "size": stat.st_size,
+                    "size_mb": round(stat.st_size / (1024 * 1024), 2),
+                    "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                })
+        files.sort(key=lambda x: x["name"])
+        return {"files": files, "total": len(files)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/audio/{filename}")
+async def get_audio_file(filename: str):
+    """获取指定音频文件"""
+    # 安全检查：防止路径遍历
+    if ".." in filename or "/" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    
+    file_path = os.path.join(VOICE_DATA_DIR, filename)
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not filename.lower().endswith((".mp3", ".wav", ".webm", ".flac", ".m4a")):
+        raise HTTPException(status_code=400, detail="Invalid file type")
+    
+    return FileResponse(file_path)
 
 
 @app.post("/api/transcribe/{model_type}")

@@ -60,6 +60,13 @@
                   支持 MP3、WAV、WebM、FLAC、M4A 格式
                 </div>
               </div>
+              
+              <!-- 本地音频文件夹按钮 -->
+              <div class="local-audio-btn">
+                <a-button type="link" @click="openAudioBrowser">
+                  <FolderOpenOutlined /> 从本地音频文件夹选择
+                </a-button>
+              </div>
             </a-col>
 
             <!-- 麦克风录制 -->
@@ -318,6 +325,82 @@
         </div>
       </a-layout-content>
 
+      <!-- 音频文件浏览器模态框 -->
+      <a-modal
+        v-model:open="showAudioBrowser"
+        title="选择本地音频文件"
+        :width="800"
+        :footer="null"
+      >
+        <div class="audio-browser">
+          <div class="browser-header">
+            <a-input-search
+              v-model:value="audioSearchText"
+              placeholder="搜索音频文件..."
+              style="width: 250px"
+              @search="searchAudioFiles"
+            />
+            <a-tag color="blue">
+              <FolderOutlined /> {{ audioFiles.length }} 个文件
+            </a-tag>
+          </div>
+          
+          <div class="audio-file-list">
+            <a-spin v-if="loadingAudioFiles" />
+            <a-empty v-else-if="filteredAudioFiles.length === 0" description="暂无音频文件" />
+            <a-list
+              v-else
+              :data-source="filteredAudioFiles"
+              :grid="{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 2, xl: 2, xxl: 2 }"
+            >
+              <template #renderItem="{ item }">
+                <a-list-item>
+                  <a-card
+                    hoverable
+                    :class="{ selected: selectedAudioFile === item.name }"
+                    @click="selectAudioFile(item)"
+                    class="audio-file-card"
+                  >
+                    <div class="audio-file-info">
+                      <div class="audio-file-icon">
+                        <AudioOutlined />
+                      </div>
+                      <div class="audio-file-details">
+                        <div class="audio-file-name" :title="item.name">
+                          {{ item.name }}
+                        </div>
+                        <div class="audio-file-meta">
+                          <a-tag size="small">{{ item.size_mb }} MB</a-tag>
+                          <span class="audio-type">{{ getFileType(item.name) }}</span>
+                        </div>
+                      </div>
+                      <div class="audio-file-check" v-if="selectedAudioFile === item.name">
+                        <a-check-circle-two-tone two-tone-color="#52c41a" />
+                      </div>
+                    </div>
+                  </a-card>
+                </a-list-item>
+              </template>
+            </a-list>
+          </div>
+          
+          <div class="browser-footer">
+            <a-space>
+              <a-button
+                type="primary"
+                :disabled="!selectedAudioFile"
+                @click="confirmSelectAudio"
+              >
+                选择该音频
+              </a-button>
+              <a-button @click="showAudioBrowser = false">
+                取消
+              </a-button>
+            </a-space>
+          </div>
+        </div>
+      </a-modal>
+
       <!-- 页脚 -->
       <a-layout-footer class="app-footer">
         ASR 模型对比系统 ©{{ new Date().getFullYear() }} - 基于 SenseVoiceSmall 语音识别技术
@@ -327,7 +410,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import {
   AudioOutlined,
   CloudServerOutlined,
@@ -341,7 +424,10 @@ import {
   DiffOutlined,
   ReloadOutlined,
   DownloadOutlined,
-  BarChartOutlined
+  BarChartOutlined,
+  FolderOpenOutlined,
+  FolderOutlined,
+  CheckCircleTwoTone
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { audioAPI } from '@/api'
@@ -365,6 +451,13 @@ const isProcessing = ref(false)
 const comparisonResult = ref(null)
 const mediaRecorder = ref(null)
 const recordedChunks = ref([])
+
+// 音频文件浏览器相关
+const showAudioBrowser = ref(false)
+const audioFiles = ref([])
+const loadingAudioFiles = ref(false)
+const audioSearchText = ref('')
+const selectedAudioFile = ref('')
 
 // 计算属性
 const diffSegments = computed(() => {
@@ -509,7 +602,15 @@ const startComparison = async () => {
   comparisonResult.value = null
   
   try {
-    const response = await audioAPI.compareModels(currentFile.value, null)
+    let response
+    // 检查是否是来自服务器的音频文件
+    if (currentFile.value._isFromServer && currentFile.value._serverFilename) {
+      // 使用文件名方式调用 API
+      response = await audioAPI.compareModels(null, currentFile.value._serverFilename)
+    } else {
+      // 使用文件上传方式
+      response = await audioAPI.compareModels(currentFile.value, null)
+    }
     comparisonResult.value = response.comparison
     message.success('对比分析完成！')
   } catch (error) {
@@ -525,6 +626,71 @@ const resetComparison = () => {
   currentFile.value = null
   audioUrl.value = ''
   recordingDuration.value = 0
+}
+
+// 音频文件浏览器相关方法
+const filteredAudioFiles = computed(() => {
+  if (!audioSearchText.value) {
+    return audioFiles.value
+  }
+  const search = audioSearchText.value.toLowerCase()
+  return audioFiles.value.filter(f => f.name.toLowerCase().includes(search))
+})
+
+const loadAudioFiles = async () => {
+  loadingAudioFiles.value = true
+  try {
+    const response = await audioAPI.getAudioList()
+    // API 返回的已经是对象数组
+    audioFiles.value = response.files || []
+  } catch (error) {
+    console.error('加载音频文件列表失败:', error)
+    message.error('加载音频文件列表失败')
+  } finally {
+    loadingAudioFiles.value = false
+  }
+}
+
+const searchAudioFiles = (value) => {
+  audioSearchText.value = value
+}
+
+const getFileType = (filename) => {
+  if (!filename || typeof filename !== 'string') return 'UNKNOWN'
+  const ext = filename.split('.').pop()?.toUpperCase()
+  return ext || 'UNKNOWN'
+}
+
+const selectAudioFile = (item) => {
+  selectedAudioFile.value = item.name
+}
+
+const confirmSelectAudio = () => {
+  if (!selectedAudioFile.value) return
+  
+  const file = audioFiles.value.find(f => f.name === selectedAudioFile.value)
+  if (file) {
+    // 从服务器获取音频文件
+    const serverAudioUrl = audioAPI.getAudioUrl(file.name)
+    currentFile.value = new File([new Blob()], file.name, { type: 'audio/*' })
+    currentFile.value._isFromServer = true
+    currentFile.value._serverFilename = file.name
+    currentFile.value._serverAudioUrl = serverAudioUrl
+    
+    audioUrl.value = serverAudioUrl
+    showAudioBrowser.value = false
+    message.success(`已选择音频文件: ${file.name}`)
+    selectedAudioFile.value = ''
+    audioSearchText.value = ''
+  }
+}
+
+// 打开音频浏览器时加载文件列表
+const openAudioBrowser = () => {
+  showAudioBrowser.value = true
+  if (audioFiles.value.length === 0) {
+    loadAudioFiles()
+  }
 }
 
 const downloadResults = () => {
@@ -565,6 +731,13 @@ onUnmounted(() => {
   }
   if (isRecording.value && mediaRecorder.value) {
     mediaRecorder.value.stop()
+  }
+})
+
+// 监听音频浏览器打开事件，自动加载文件列表
+watch(showAudioBrowser, async (newVal) => {
+  if (newVal && audioFiles.value.length === 0) {
+    await loadAudioFiles()
   }
 })
 </script>
@@ -868,5 +1041,85 @@ onUnmounted(() => {
   .subtitle {
     display: none;
   }
+}
+
+/* 音频浏览器样式 */
+.local-audio-btn {
+  text-align: center;
+  margin-top: 12px;
+}
+
+.audio-browser {
+  min-height: 400px;
+}
+
+.browser-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.audio-file-list {
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.audio-file-card {
+  transition: all 0.3s ease;
+}
+
+.audio-file-card.selected {
+  border-color: #52c41a;
+  background: #f6ffed;
+}
+
+.audio-file-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.audio-file-icon {
+  font-size: 32px;
+  color: #1890ff;
+  flex-shrink: 0;
+}
+
+.audio-file-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.audio-file-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.audio-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.audio-type {
+  color: #8c8c8c;
+  font-size: 12px;
+}
+
+.audio-file-check {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.browser-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+  text-align: center;
 }
 </style>
