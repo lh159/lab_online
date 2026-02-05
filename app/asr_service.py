@@ -165,6 +165,20 @@ class ASRService:
             merge_length_s=15,
         )
         
+        # 调试：打印返回数据结构
+        print(f"[DEBUG] funasr 返回结果类型: {type(res)}")
+        if res:
+            print(f"[DEBUG] 返回结果长度: {len(res)}")
+            if isinstance(res[0], dict):
+                print(f"[DEBUG] 返回字典的键: {list(res[0].keys())}")
+                print(f"[DEBUG] 'prob' 字段类型: {type(res[0].get('prob'))}")
+                print(f"[DEBUG] 'prob' 字段值: {res[0].get('prob')}")
+                if not res[0].get('prob'):
+                    # 尝试打印其他可能包含置信度的字段
+                    for key in res[0].keys():
+                        if key != 'text':
+                            print(f"[DEBUG] 字段 '{key}': {res[0][key]}")
+        
         processing_time = (time.time() - start_time) * 1000  # 转换为毫秒
         
         raw_text = res[0].get("text", "")
